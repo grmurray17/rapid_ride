@@ -96,6 +96,7 @@ class RidePricingOptimizer:
         # parameters
         err_1 = 0.00001                    # tolerance for alpha values
         err_2 = 0.05                       # tolerance for delta(profit)
+        step_size = 0.005                  # step size for gradient calculation 
         if start_price is None:
             start_price = (self.price_min + self.price_max) * 0.5
         iterations = 500
@@ -109,13 +110,12 @@ class RidePricingOptimizer:
         for iter in range (1, iterations):
                 
             price_gradient = np.full(num_periods, 0, dtype=float)
-            deferred_customers = 0
 
             # calculate price gradient
             for period in range (0, num_periods):
                 new_prices = prices
-                new_prices[period] = new_prices[period] + 0.005
-                price_gradient[period] = self.simulate_day(base_demands, new_prices, max_drivers_per_period) - profit
+                new_prices[period] = new_prices[period] + step_size
+                price_gradient[period] = (self.simulate_day(base_demands, new_prices, max_drivers_per_period) - profit)/step_size
                 
             # calculate norm of gradient (so we can normalize)
             price_gradient_norm = 0
@@ -139,7 +139,7 @@ class RidePricingOptimizer:
                 alpha_3 = alpha_3 / 2
                 profit_3 = self.simulate_day(base_demands, prices + (price_gradient * alpha_3), max_drivers_per_period)
                 if alpha_3 < err_1:
-                    print("no improvement")
+                    # print("no improvement") # debugging statement
                     return prices
                 
             alpha_2 = alpha_3 / 2
@@ -175,7 +175,7 @@ class RidePricingOptimizer:
             else:
                 return prices
             
-        print("max iterations")
+        # print("max iterations") # debugging statement
         return(prices)
     
     def optimize_prices_cluster(self, base_demands, max_drivers_per_period=None, num_tests=10):
@@ -233,42 +233,6 @@ class RidePricingOptimizer:
             deferred_customers = new_deferred
        
         return total_profit
-    
-    def calculate_demand(self, total_demand, price):
-        """
-        Calculate actual ridership based on price.
-        - quadratic model; 100% of riders ride when price is 0, 0% ride when price is $30
-        
-        Args:
-            total_demand: Total customers wanting rides this period
-            max_drivers: number of drivers available this period
-            price: Price being charged
-            
-        Returns:
-            (actual_customers_this_period)
-        """
-
-       
-        proportion_deferred = min((price ** 2) / 900, 1)
-        deferred = proportion_deferred * total_demand
-        actual = total_demand - deferred
-
-        return actual
-        
-    def calculate_demand_prime(self, total_demand, price):
-        """
-        Calculate the derivativ eof ridership with respect to price.
-        - quadratic model; 100% of riders ride when price is 0, 0% ride when price is $30
-        
-        Args:
-            total_demand: Total customers wanting rides this period
-            price: Price being charged
-            
-        Returns:
-            (actual_customers_this_period_prime)
-        """
-        demand_prime = - 1 * price * total_demand / 450
-        return demand_prime
 
     def calculate_demand_and_spillover(self, total_demand, price, max_drivers=None):
         """
