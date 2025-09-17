@@ -13,18 +13,19 @@ class RidePricingOptimizer:
 
     def optimize_prices_discrete(self, base_demands, max_drivers_per_period=None):
         """
-        
-        Main optimization function - implement your algorithm here!
+        Uses dynamic programming to optimize pricing by finding an optimal path of prices; uses recursion to find optimal
+        path for rest-of-day given price, calculates total profit, and then compares to each other price in list.
         
         Args:
             base_demands: Expected number of ride requests for each time period
+                         Example: [20, 50, 80, 60, 40] for 5 periods
+            max_drivers_per_period (optional): Expected number of drivers available for each time period
                          Example: [20, 50, 80, 60, 40] for 5 periods
         
         Returns:
             List of optimal prices for each period
             Example: [8, 12, 15, 10, 7] 
         
-        # TODO: Implement your optimization approach
         """
 
         num_periods = len(base_demands)
@@ -75,7 +76,8 @@ class RidePricingOptimizer:
         
     def optimize_prices_continuous(self, base_demands, max_drivers_per_period=None, start_price=None, step_size=0.1):
         """
-        
+        Uses gradient decsent to optimie prices by moving prices for each period in the directions that maximize profit.
+
         Args:
             base_demands: Expected number of ride requests for each time period
                          Example: [20, 50, 80, 60, 40] for 5 periods
@@ -141,7 +143,7 @@ class RidePricingOptimizer:
                 alpha_3 = alpha_3 / 2
                 profit_3 = self.simulate_day(base_demands, prices + (price_gradient * alpha_3), max_drivers_per_period)
                 if alpha_3 < err_1:
-                    print("no improvement") # debugging statement
+                    # print("no improvement") # debugging statement
                     return prices
                 
             alpha_2 = alpha_3 / 2
@@ -176,29 +178,70 @@ class RidePricingOptimizer:
             if new_profit > profit + err_2:
                 profit = new_profit
                 prices = new_prices
-                print("iterate success")
+                # print("iterate success")
             else:
                 return prices
             
-        print("max iterations") # debugging statement
+        # print("max iterations") # debugging statement
         return(prices)
     
     def optimize_prices_cluster(self, base_demands, max_drivers_per_period=None, num_tests=10):
+        """
+        Helps find optimal solution via gradient decsent by running gradient descent from various starting price cases.
+        Depends on optimize_prices_continuous.
+
+        Args:
+            base_demands: Expected number of ride requests for each time period
+                         Example: [20, 50, 80, 60, 40] for 5 periods
+            max_drivers_per_period (optional): Expected number of drivers available for each time period
+                         Example: [20, 50, 80, 60, 40] for 5 periods
+            nut_tests (optional): Number of evenly-spaced test points as the start for the gradient descent
+                            algorithm; default is 10
+        
+        Returns:
+            List of optimal prices for each period
+            Example: [8, 12, 15, 10, 7] 
+        
+        """
+        # get a list of evently-spaced price points to start at
         start_prices = np.linspace(self.price_min, self.price_max, num_tests)
+
+        # initialize optimal values to maximize against
         profit_opt = float("-inf")
         prices_opt = []
+        
+        # run gradient descent for each starting point
         for start_price in start_prices:
             prices = self.optimize_prices_continuous(base_demands, max_drivers_per_period, start_price)
             profit = self.simulate_day(base_demands, prices, max_drivers_per_period)
             if profit > profit_opt:
                 profit_opt = profit
                 prices_opt = prices
+
+        # return optimal prices
         return prices_opt
     
     def optimize_prices_combination(self, base_demands, max_drivers_per_period=None):
+        """
+        Optimizes prices by finding the best discrete possibility and then optimizing from there via gradient descent.
+        Depends on the optimize_prices_discrete and optimize_prices_continuous functions.
+
+        Args:
+            base_demands: Expected number of ride requests for each time period
+                         Example: [20, 50, 80, 60, 40] for 5 periods
+            max_drivers_per_period (optional): Expected number of drivers available for each time period
+                         Example: [20, 50, 80, 60, 40] for 5 periods
+        
+        Returns:
+            List of optimal prices for each period
+            Example: [8, 12, 15, 10, 7] 
+        
+        """
         # start with optimal discrete prices and iterate better
         start_prices = self.optimize_prices_discrete(base_demands, max_drivers_per_period)
         better_prices = self.optimize_prices_continuous(base_demands, max_drivers_per_period, start_prices, 0.01)
+
+        # check if we got better (i hope so!), otherwise return discrete prices as a best-case
         if self.simulate_day(base_demands, better_prices, max_drivers_per_period) > self.simulate_day(base_demands, start_prices, max_drivers_per_period):
             return better_prices
         else:
@@ -264,14 +307,48 @@ class RidePricingOptimizer:
             (actual_customers_this_period, customers_deferred_to_next_period)
         """
         
+        
         if max_drivers is not None:
             supply = max_drivers
         else:
             supply = None
         
-        proportion_deferred = min(price/30, 1)
+        """
+        # quadratic deferral model for testing
+
+        proportion_deferred = min((price ** 2) / 900, 1)
         deferred = proportion_deferred * total_demand
         demand = total_demand - deferred
+        """
+        
+        """
+        # original price strategy
+
+        if price <= 10:
+            demand = total_demand
+            deferred = 0
+        elif price <= 20:
+            deferred = int(total_demand * 0.1)
+            demand = total_demand - deferred
+        else:  # price >= 21:
+            deferred = int(total_demand * 0.3)
+            demand = total_demand - deferred
+        """
+
+
+        
+        # strategy to test
+
+        if price <= 10:
+            demand = total_demand
+            deferred = 0
+        elif price <= 20:
+            deferred = int(total_demand * 0.5)
+            demand = total_demand - deferred
+        else:  # price >= 21:
+            deferred = int(total_demand * 1)
+            demand = total_demand - deferred
+        
 
         if supply is not None:
             if demand >= supply:
