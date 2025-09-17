@@ -33,6 +33,7 @@ class RidePricingOptimizer:
 
         num_periods = len(base_demands)
 
+        # cehck for errors in input
         if (max_drivers_per_period is not None) and (len(max_drivers_per_period) < num_periods):
             raise ValueError("max_drivers must have the same length as base_demands (or longer)")
 
@@ -78,10 +79,105 @@ class RidePricingOptimizer:
         profit, prices = look_ahead(0,0)
         price_list = list(prices)
         return price_list
-        
-    def optimize_prices_continuous(self, base_demands, max_drivers_per_period=None, start_price=None, step_size=0.1):
+    
+    def optimize_prices_continuous(self, base_demands, max_drivers_per_period=None, start_prices=None):
         """
-        Uses gradient decsent to optimie prices by moving prices for each period in the directions that maximize profit.
+        Uses gradient ascent with Armijo backtracking to optimie prices by moving 
+        prices for each period in the directions that maximize profit.
+
+        Args:
+            base_demands: Expected number of ride requests for each time period
+                         Example: [20, 50, 80, 60, 40] for 5 periods
+            max_drivers_per_period (optional): Expected number of drivers available for each time period
+                         Example: [20, 50, 80, 60, 40] for 5 periods
+            start_prices (optional): Starting point for gradient descent algorithm 
+                         If not provided, initialized at the mean of self.price_min and self.price_max
+                         Example: [17.0, 13.0, 12.0, 11.0, 10.0] for 5 periods
+        
+        Returns:
+            List of optimal prices for each period
+            Example: [8, 12, 15, 10, 7] 
+        """
+        step_size=1e-3          # step_size for gradient 
+        max_iters=200 
+        c1=1e-4                 # armijo parameter for "good enough" increase
+        backtrack=0.5           # shrink factor for alpha iterations
+        tol_g=1e-6              # tolerance for gradient norm
+        tol_f=1e-8              # tolerance for profit improvement
+
+        num_periods = len(base_demands)
+
+        # check for errors in inputs
+        if start_prices is None:
+            start_prices = np.full(num_periods, 0.5 * (self.price_min + self.price_max))
+        elif (len(start_prices) < num_periods):
+            raise ValueError("start_prices must have the same length as base_demands (or longer)")
+        if (max_drivers_per_period is not None) and (len(max_drivers_per_period) < num_periods):
+            raise ValueError("max_drivers must have the same length as base_demands (or longer)")
+
+        # starting point
+        prices = start_prices
+        # helper to project into range
+        def project(z):
+            return np.clip(z, self.price_min, self.price_max)
+
+        # evaluate once
+        start_profit = self.simulate_day(base_demands, prices, max_drivers_per_period)
+
+        for iter in range(max_iters):
+            # linear gradient calculation
+            price_gradient = np.zeros(num_periods, dtype=float)
+            for i in range(num_periods):
+                step = max(1e-4, abs(prices[i])*1e-6, step_size)
+                iter_vector = np.zeros(num_periods); iter_vector[i] = 1.0
+                forward = self.simulate_day(base_demands, project(prices + step*iter_vector), max_drivers_per_period)
+                backward = self.simulate_day(base_demands, project(prices - step*iter_vector), max_drivers_per_period)
+                price_gradient[i] = (forward - backward) / (2.0*step)
+            
+            norm = np.linalg.norm(price_gradient, ord=2)
+            if norm < tol_g:
+                break
+
+            # projected gradient direction
+            price_gradient_normalized = price_gradient / (norm + 1e-16)
+
+            # if at a bound and pushing outward, zero that component
+            for i in range(num_periods):
+                if (prices[i] <= self.price_min + 1e-12 and price_gradient_normalized[i] < 0) or \
+                 (prices[i] >= self.price_max - 1e-12 and price_gradient_normalized[i] > 0):
+                    price_gradient_normalized[i] = 0.0
+
+            if np.allclose(price_gradient_normalized, 0.0):
+                break
+
+            # Armijo gradient ascent
+            alpha = 1.0
+            rhs_slope = c1 * norm  # because gradient is normalized, gradient^T * norm = ||gradient||
+            improved = False
+            while alpha > 1e-12:
+                prices_alpha = project(prices + alpha * price_gradient_normalized)
+                profit_new = self.simulate_day(base_demands, prices_alpha, max_drivers_per_period)
+                if profit_new >= start_profit + alpha * rhs_slope:
+                    improved = True
+                    break
+                alpha *= backtrack
+
+            if not improved:
+                # could not find an improving step, stop
+                break
+
+            # accept
+            rel_gain = (profit_new - start_profit) / max(1.0, abs(start_profit))
+            prices, start_profit = prices_alpha, profit_new
+            if rel_gain < tol_f:
+                break
+
+        return prices
+    
+    def optimize_prices_continuous_quadratic(self, base_demands, max_drivers_per_period=None, start_prices=None, step_size=0.1):
+        """"
+        Uses gradient descent with quardtic interpolation to optimie prices by moving 
+        prices for each period in the directions that maximize profit.
 
         Args:
             base_demands: Expected number of ride requests for each time period
@@ -95,21 +191,27 @@ class RidePricingOptimizer:
         Returns:
             List of optimal prices for each period
             Example: [8, 12, 15, 10, 7] 
-        
         """
+        
 
         num_periods = len(base_demands)
 
-        # parameters
+        # check for errors in inputs
+        if start_prices is None:
+            start_prices = np.full(num_periods, 0.5 * (self.price_min + self.price_max))
+        elif (len(start_prices) < num_periods):
+            raise ValueError("start_prices must have the same length as base_demands (or longer)")
+        if (max_drivers_per_period is not None) and (len(max_drivers_per_period) < num_periods):
+            raise ValueError("max_drivers must have the same length as base_demands (or longer)")
+
+        # parameters & starting guess
         err_1 = 0.00001                    # tolerance for alpha values
         err_2 = 0.00001                    # tolerance for delta(profit)
-        if start_price is None:
-            start_price = (self.price_min + self.price_max) * 0.5
+        
+        prices = start_prices
         iterations = 100
-            
-        # starting guess
-        prices = np.full(num_periods, start_price, dtype = float)
 
+        
         # iterate up to max iterations or optimum reached
         for iter in range (1, iterations):
                 
@@ -136,7 +238,7 @@ class RidePricingOptimizer:
             for period in range(0, num_periods):
                 price_gradient[period] = price_gradient[period] / (price_gradient_norm) # normalize
             
-            # now we find a nice alpha to multiply the gradient by!
+            # now we find a nice alpha to multiply the gradient by! this uses quadrtic interpolation
             alpha_1 = 0
             profit_1 = profit
             alpha_3 = 1
@@ -146,7 +248,6 @@ class RidePricingOptimizer:
                 alpha_3 = alpha_3 / 2
                 profit_3 = self.simulate_day(base_demands, prices + (price_gradient * alpha_3), max_drivers_per_period)
                 if alpha_3 < err_1:
-                    # print("no improvement") # debugging statement
                     return prices
                 
             alpha_2 = alpha_3 / 2
@@ -181,11 +282,10 @@ class RidePricingOptimizer:
             if new_profit > profit + err_2:
                 profit = new_profit
                 prices = new_prices
-                # print("iterate success")
+                print("iterate success")
             else:
                 return prices
             
-        # print("max iterations") # debugging statement
         return(prices)
     
     def optimize_prices_cluster(self, base_demands, max_drivers_per_period=None, num_tests=10):
@@ -206,6 +306,13 @@ class RidePricingOptimizer:
             Example: [8, 12, 15, 10, 7] 
         
         """
+        num_periods = len(base_demands)
+
+        # check for errors in inputs
+        if (max_drivers_per_period is not None) and (len(max_drivers_per_period) < num_periods):
+            raise ValueError("max_drivers must have the same length as base_demands (or longer)")
+
+
         # get a list of evently-spaced price points to start at
         start_prices = np.linspace(self.price_min, self.price_max, num_tests)
 
@@ -215,7 +322,8 @@ class RidePricingOptimizer:
         
         # run gradient descent for each starting point
         for start_price in start_prices:
-            prices = self.optimize_prices_continuous(base_demands, max_drivers_per_period, start_price)
+            start_price_vec = np.full(num_periods, start_price)
+            prices = self.optimize_prices_continuous(base_demands, max_drivers_per_period, start_price_vec)
             profit = self.simulate_day(base_demands, prices, max_drivers_per_period)
             if profit > profit_opt:
                 profit_opt = profit
@@ -240,9 +348,15 @@ class RidePricingOptimizer:
             Example: [8, 12, 15, 10, 7] 
         
         """
+        num_periods = len(base_demands)
+
+        # check for errors in inputs
+        if (max_drivers_per_period is not None) and (len(max_drivers_per_period) < num_periods):
+            raise ValueError("max_drivers must have the same length as base_demands (or longer)")
+
         # start with optimal discrete prices and iterate better
         start_prices = self.optimize_prices_discrete(base_demands, max_drivers_per_period)
-        better_prices = self.optimize_prices_continuous(base_demands, max_drivers_per_period, start_prices, 0.01)
+        better_prices = self.optimize_prices_continuous(base_demands, max_drivers_per_period, start_prices)
 
         # check if we got better (i hope so!), otherwise return discrete prices as a best-case
         if self.simulate_day(base_demands, better_prices, max_drivers_per_period) > self.simulate_day(base_demands, start_prices, max_drivers_per_period):
@@ -370,7 +484,7 @@ class RidePricingOptimizer:
 # Sample usage and testing
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run RidePricingOptimizer scenarios.")
-    parser.add_argument("--model", type=str, default="quadratic",
+    parser.add_argument("--model", type=str, default="tieredSoft",
                         choices=["quadratic", "linear", "tiered50", "tieredSoft"],
                         help="Demand/deferral model to use.")
     parser.add_argument("--tests", type=int, default=20, help="Num seeds for cluster search.")
