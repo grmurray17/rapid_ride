@@ -3,6 +3,7 @@ import itertools
 import time
 import random
 import numpy as np
+from functools import lru_cache
 
 class RidePricingOptimizer:
     def __init__(self):
@@ -35,7 +36,7 @@ class RidePricingOptimizer:
 
         # dynamic programming algorithm for price optimization
         def look_ahead(period, deferred_customers):
-            optimal_prices = []
+            optimal_prices = ()
             optimal_profit = float("-inf")
 
             total_demand = base_demands[period] + deferred_customers
@@ -59,7 +60,7 @@ class RidePricingOptimizer:
                 else:
                     # no future profits for end-of-day
                     future_profit = 0 # change for spillover?
-                    future_prices = []
+                    future_prices = ()
 
                 #  calculate total profit
                 total_profit = period_profit + future_profit
@@ -67,12 +68,13 @@ class RidePricingOptimizer:
                 # check if we have a new optimal solution
                 if total_profit > optimal_profit:
                     optimal_profit = total_profit
-                    optimal_prices = [price] + future_prices
+                    optimal_prices = (price,) + future_prices
             
             return(optimal_profit, optimal_prices)
         
         profit, prices = look_ahead(0,0)
-        return prices
+        price_list = list(prices)
+        return price_list
         
     def optimize_prices_continuous(self, base_demands, max_drivers_per_period=None, start_price=None, step_size=0.1):
         """
@@ -97,15 +99,13 @@ class RidePricingOptimizer:
 
         # parameters
         err_1 = 0.00001                    # tolerance for alpha values
-        err_2 = 0.05                       # tolerance for delta(profit)
+        err_2 = 0.00001                    # tolerance for delta(profit)
         if start_price is None:
             start_price = (self.price_min + self.price_max) * 0.5
-        iterations = 500
+        iterations = 100
             
         # starting guess
         prices = np.full(num_periods, start_price, dtype = float)
-        #period_profits = np.full(num_periods, 0.0, dtype = float)
-        
 
         # iterate up to max iterations or optimum reached
         for iter in range (1, iterations):
@@ -164,7 +164,7 @@ class RidePricingOptimizer:
                 new_prices = prices + (price_gradient * alpha_0)
             else:
                 new_profit = profit_3
-                new_prices = prices + price_gradient
+                new_prices = prices + (price_gradient * alpha_3)
 
             # cap prices
             for period in range (0, num_periods):
@@ -317,13 +317,14 @@ class RidePricingOptimizer:
         else:
             supply = None
         
-        """
+        
         # quadratic deferral model for testing
 
         proportion_deferred = min((price ** 2) / 900, 1)
         deferred = proportion_deferred * total_demand
+        lost = 0
         demand = total_demand - deferred
-        """
+        
         
         """
         # original price strategy
@@ -340,7 +341,7 @@ class RidePricingOptimizer:
         """
 
 
-        
+        '''
         # strategy to test
 
         if price <= 10:
@@ -348,13 +349,14 @@ class RidePricingOptimizer:
             deferred = 0
             lost = 0
         elif price <= 20:
-            deferred = int(total_demand * 0.2)
-            lost = int(total_demand * 0.3)
+            deferred = total_demand * 0.2
+            lost = total_demand * 0.3
             demand = total_demand - deferred - lost
         else:  # price >= 21:
-            deferred = int(total_demand * 0.3)
-            lost = int(total_demand * 0.7)
+            deferred = total_demand * 0.3
+            lost = total_demand * 0.7
             demand = total_demand - deferred - lost
+        '''
         
 
         if supply is not None:
