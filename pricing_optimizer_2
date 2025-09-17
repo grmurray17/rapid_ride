@@ -9,7 +9,7 @@ class RidePricingOptimizer:
         self.cost_per_ride = 3.0
         self.price_min = self.cost_per_ride  # Available price points
         self.price_max = 30.0
-        self.price_options = np.arange(self.price_min, self.price_max + 1, 1)  # Available price points
+        self.price_options = [15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]  # Available price points
 
     def optimize_prices_discrete(self, base_demands, max_drivers_per_period=None):
         """
@@ -102,7 +102,7 @@ class RidePricingOptimizer:
             
         # starting guess
         prices = np.full(num_periods, start_price, dtype = float)
-        period_profits = np.full(num_periods, 0.0, dtype = float)
+        #period_profits = np.full(num_periods, 0.0, dtype = float)
         
 
         # iterate up to max iterations or optimum reached
@@ -112,11 +112,12 @@ class RidePricingOptimizer:
             profit = self.simulate_day(base_demands, prices, max_drivers_per_period)
 
             # calculate price gradient
+            new_prices = prices.copy()
             for period in range (0, num_periods):
-                new_prices = prices
                 new_prices[period] = new_prices[period] + step_size
                 new_profit = self.simulate_day(base_demands, new_prices, max_drivers_per_period)
                 price_gradient[period] = (new_profit - profit)/step_size
+                new_prices = prices.copy()
                 
             # calculate norm of gradient (so we can normalize)
             price_gradient_norm = 0
@@ -150,8 +151,11 @@ class RidePricingOptimizer:
             coeff_2 = (profit_3 - profit_2) / (alpha_3 - alpha_2)
             coeff_3 = (coeff_2 - coeff_1) / alpha_3
 
-            alpha_0 = 0.5 * (alpha_2 - coeff_1 / coeff_3)
-            profit_0 = self.simulate_day(base_demands, prices + (price_gradient * alpha_0), max_drivers_per_period)
+            if coeff_3 != 0:
+                alpha_0 = 0.5 * (alpha_2 - coeff_1 / coeff_3)
+                profit_0 = self.simulate_day(base_demands, prices + (price_gradient * alpha_0), max_drivers_per_period)
+            else: 
+                profit_0 = profit_3 - 1
 
             if profit_0 >= profit_3:
                 new_profit = profit_0
@@ -168,7 +172,7 @@ class RidePricingOptimizer:
                     new_prices[period] = self.price_min
 
             new_profit = self.simulate_day(base_demands, new_prices, max_drivers_per_period)
-            
+
             if new_profit > profit + err_2:
                 profit = new_profit
                 prices = new_prices
@@ -304,30 +308,30 @@ if __name__ == "__main__":
     print(f"Test prices {optimized_prices} -> Profit: ${profit_opt:.2f}\n")
     '''
 
-    optimized_prices_better = optimizer.optimize_prices_cluster(base_demands, max_drivers_per_period, int(optimizer.price_max-optimizer.price_min))
-    print(f"Optimized prices (better?): {optimized_prices_better}\n")
-    profit_opt_better = optimizer.simulate_day(base_demands, optimized_prices_better, max_drivers_per_period)
-    print(f"Test prices {optimized_prices_better} -> Profit: ${profit_opt_better:.2f}\n")
-
-    #ptimized_prices_better = optimizer.optimize_prices_cluster(base_demands, None, int(optimizer.price_max-optimizer.price_min))
+    #optimized_prices_better = optimizer.optimize_prices_cluster(base_demands, max_drivers_per_period, int(optimizer.price_max-optimizer.price_min))
     #print(f"Optimized prices (better?): {optimized_prices_better}\n")
-    #profit_opt_better = optimizer.simulate_day(base_demands, optimized_prices_better)
+    #profit_opt_better = optimizer.simulate_day(base_demands, optimized_prices_better, max_drivers_per_period)
     #print(f"Test prices {optimized_prices_better} -> Profit: ${profit_opt_better:.2f}\n")
-    
-    optimized_prices_discrete = optimizer.optimize_prices_discrete(base_demands, max_drivers_per_period)
-    print(f"Optimized prices: {optimized_prices_discrete}\n")
-    profit_opt_discrete = optimizer.simulate_day(base_demands, optimized_prices_discrete, max_drivers_per_period)
-    print(f"Test prices {optimized_prices_discrete} -> Profit: ${profit_opt_discrete:.2f}\n")
 
-    optimized_for_real = optimizer.optimize_prices_combination(base_demands, max_drivers_per_period)
-    p_opt = optimizer.simulate_day(base_demands, optimized_for_real, max_drivers_per_period)
+    optimized_prices_better = optimizer.optimize_prices_cluster(base_demands, None, int(optimizer.price_max-optimizer.price_min))
+    print(f"Optimized prices (better?): {optimized_prices_better}\n")
+    profit_opt_better = optimizer.simulate_day(base_demands, optimized_prices_better)
+    print(f"Test prices {optimized_prices_better} -> Profit: ${profit_opt_better:.2f}\n")
+    
+    #optimized_prices_discrete = optimizer.optimize_prices_discrete(base_demands, max_drivers_per_period)
+    #print(f"Optimized prices: {optimized_prices_discrete}\n")
+    #profit_opt_discrete = optimizer.simulate_day(base_demands, optimized_prices_discrete, max_drivers_per_period)
+    #print(f"Test prices {optimized_prices_discrete} -> Profit: ${profit_opt_discrete:.2f}\n")
+
+    optimized_for_real = optimizer.optimize_prices_combination(base_demands)
+    p_opt = optimizer.simulate_day(base_demands, optimized_for_real)
     print(f"Test prices {optimized_for_real} -> Profit: ${p_opt:.2f}\n")
 
 
-    #optimized_prices_discrete = optimizer.optimize_prices_discrete(base_demands)
-    #print(f"Optimized prices: {optimized_prices_discrete}\n")
-    #profit_opt_discrete = optimizer.simulate_day(base_demands, optimized_prices_discrete)
-    #print(f"Test prices {optimized_prices_discrete} -> Profit: ${profit_opt_discrete:.2f}\n")
+    optimized_prices_discrete = optimizer.optimize_prices_discrete(base_demands)
+    print(f"Optimized prices: {optimized_prices_discrete}\n")
+    profit_opt_discrete = optimizer.simulate_day(base_demands, optimized_prices_discrete)
+    print(f"Test prices {optimized_prices_discrete} -> Profit: ${profit_opt_discrete:.2f}\n")
 
 
     # Test simulation
