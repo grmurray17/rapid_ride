@@ -30,8 +30,8 @@ class RidePricingOptimizer:
 
         num_periods = len(base_demands)
 
-        if (max_drivers_per_period is not None) and (len(max_drivers_per_period) != num_periods):
-            raise ValueError("max_drivers and base_demands must have same length")
+        if (max_drivers_per_period is not None) and (len(max_drivers_per_period) < num_periods):
+            raise ValueError("max_drivers must have the same length as base_demands (or longer)")
 
         # dynamic programming algorithm for price optimization
         def look_ahead(period, deferred_customers):
@@ -45,11 +45,11 @@ class RidePricingOptimizer:
 
                 if max_drivers_per_period is not None:
                     supply = max_drivers_per_period[period]
-                    actual_customers, new_deferred = self.calculate_demand_and_spillover(total_demand, price, supply)
+                    actual_customers, new_deferred, _ = self.calculate_demand_and_spillover(total_demand, price, supply)
                     period_profit = (price - self.cost_per_ride) * actual_customers
 
                 else:
-                    actual_customers, new_deferred = self.calculate_demand_and_spillover(total_demand, price)
+                    actual_customers, new_deferred, _ = self.calculate_demand_and_spillover(total_demand, price)
                     period_profit = (price - self.cost_per_ride) * actual_customers
                 
                 # check if there are future periods
@@ -266,11 +266,12 @@ class RidePricingOptimizer:
         if len(base_demands) != len(prices):
             raise ValueError("base_demands and prices must have same length")
         if max_drivers_per_period is not None: 
-            if len(prices) != len(max_drivers_per_period):
-                raise ValueError("max_drivers and prices must have same length")
+            if len(prices) > len(max_drivers_per_period):
+                raise ValueError("max_drivers must have the same length as prices (or longer!)")
         
         total_profit = 0
         deferred_customers = 0  # Number of spillover customers
+        lost_customers = 0 # Number of customers choosing other services (not spillover)
         
         for period in range(len(base_demands)):
             # Total demand = base demand + spillover
@@ -280,7 +281,7 @@ class RidePricingOptimizer:
             else:
                 supply = None
             
-            actual_customers, new_deferred = self.calculate_demand_and_spillover(
+            actual_customers, new_deferred, new_lost = self.calculate_demand_and_spillover(
                 total_demand, prices[period], supply
             )
             
@@ -290,13 +291,16 @@ class RidePricingOptimizer:
             
             # Update spillover customers for next period
             deferred_customers = new_deferred
+            lost_customers += new_lost
        
         return total_profit
 
     def calculate_demand_and_spillover(self, total_demand, price, max_drivers=None):
         """
-        Calculate actual ridership and spillover based on price.
+        Calculate actual ridership, spillover, and loss based on price.
         - quadratic model; 100% of riders ride when price is 0, 0% ride when price is $30
+        - piecewise model; 100% ride when price < $10, 50% ride (30% lost, 20% deferred) when price is $10-20, 
+            none ride when price is over $20 (70% lost, 30% deferred)
         
         Args:
             total_demand: Total customers wanting rides this period
@@ -304,7 +308,7 @@ class RidePricingOptimizer:
             price: Price being charged
             
         Returns:
-            (actual_customers_this_period, customers_deferred_to_next_period)
+            (actual_customers_this_period, customers_deferred_to_next_period, customers_lost)
         """
         
         
@@ -342,25 +346,28 @@ class RidePricingOptimizer:
         if price <= 10:
             demand = total_demand
             deferred = 0
+            lost = 0
         elif price <= 20:
-            deferred = int(total_demand * 0.5)
-            demand = total_demand - deferred
+            deferred = int(total_demand * 0.2)
+            lost = int(total_demand * 0.3)
+            demand = total_demand - deferred - lost
         else:  # price >= 21:
-            deferred = int(total_demand * 1)
-            demand = total_demand - deferred
+            deferred = int(total_demand * 0.3)
+            lost = int(total_demand * 0.7)
+            demand = total_demand - deferred - lost
         
 
         if supply is not None:
             if demand >= supply:
                 actual = supply
-                deferred = total_demand - actual
+                deferred = total_demand - actual - lost
             else:
                 actual = demand
         
         else:
             actual = demand
 
-        return actual, deferred
+        return actual, deferred, lost
 
 # Sample usage and testing
 if __name__ == "__main__":
